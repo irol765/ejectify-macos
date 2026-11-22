@@ -1,0 +1,41 @@
+name: Build Ejectify (ad-hoc)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build (unsigned)
+        run: |
+          xcodebuild -project Ejectify.xcodeproj -scheme Ejectify -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Ad-hoc sign (inside-out)
+        run: |
+          APP=$(find build -name "Ejectify.app" -type d | head -1)
+          echo "App: $APP"
+          find "$APP" -type f | while read -r f; do
+            if file "$f" | grep -q "Mach-O"; then
+              codesign --force --sign - "$f"
+            fi
+          done
+          codesign --force --sign - "$APP"
+          codesign --verify --verbose=2 "$APP" || true
+          echo "APP_PATH=$APP" >> "$GITHUB_ENV"
+
+      - name: Package
+        run: ditto -c -k --keepParent "$APP_PATH" Ejectify-adhoc.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ejectify-adhoc
+          path: Ejectify-adhoc.zip
